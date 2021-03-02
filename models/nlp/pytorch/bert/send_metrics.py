@@ -3,12 +3,11 @@ from os.path import join
 
 import boto3
 
-def get_metrics(dir_name, metric_types, units):
+def get_metrics(dir_name, metric_types):
     """
     Reads the metrics files and returns a dict of metrics.
-    Each key in metrics will be a dictionary with two keys: Value and Units.
-    For example:
-    'phase1_train_runtime': {'Value': 12.1279715, 'Units': 'hours'}
+    Each key in metrics will be a dictionary with the key Value.
+    For example: 'phase1_train_runtime': {'Value': 12.1279715}
     """
     metrics = {}
     for step in metric_types.keys():
@@ -18,14 +17,13 @@ def get_metrics(dir_name, metric_types, units):
                 for line in f:
                     key, value = map(str.strip, line.split("="))
                     if key in metric_types[step]['keys']:
-                        unit = units[key]
+                        value = float(value)
                         # convert training runtime from seconds to hours
                         if key == 'train_runtime':
-                            value = float(value)
+                            value = value
                             value /= 3600
                         metrics[f"{phase}_{key}"] = {
                             "Value": value,
-                            "Units": unit
                         }
     return metrics
 
@@ -34,32 +32,25 @@ def main(args):
     metric_types = {
         'train': {
             'filename': 'train_results.txt',
-            'phases': ["phase1", "phase2"],
+            'phases': ["bert_phase1", "bert_phase2"],
             'keys': ['train_runtime', 'train_samples_per_second'],
         },
         'squad': {
             'filename': 'eval_results.txt',
             'phases': ["squad1", "squad2"],
-            'keys': ['exact_match', 'f1'],
+            'keys': ['f1'],
         }
     }
 
-    units = {
-        'train_runtime': 'hours',
-        'train_samples_per_second': 'samples / sec',
-        'exact_match': '',
-        'f1': ''
-    }
-
-    metrics = get_metrics(args.results_dir, metric_types, units)
+    metrics = get_metrics(args.results_dir, metric_types)
     print(metrics)
 
-    cloudwatch = boto3.client('cloudwatch')
+    cloudwatch = boto3.client('cloudwatch', region_name='us-west-2')
 
     Data = []
     namespace = f'-NLP-EC2-BERT-{args.num_nodes}nodes'
 
-    Data = [{'MetricName': metric, 'Unit': metrics[metric]["Unit"], 'Value': metrics[metric]['Value']} \
+    Data = [{'MetricName': metric, 'Value': metrics[metric]['Value']} \
         for metric in metrics.keys()]
 
     _ = cloudwatch.put_metric_data(
