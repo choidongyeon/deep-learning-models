@@ -131,6 +131,8 @@ def main():
     # Load preprocessed datasets
     datasets = torch.load(data_args.train_dataset)
     datasets = datasets.train_test_split(test_size=data_args.validation_split_percentage)
+    train_dataset = datasets["train"]
+    eval_dataset = datasets["test"]
 
     # Data collator
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=data_args.mlm_probability)
@@ -138,8 +140,8 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=datasets["train"],
-        eval_dataset=datasets["test"],
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         tokenizer=tokenizer,
         data_collator=data_collator,
         optimizers=create_optimizer_and_scheduler(model, training_args),
@@ -164,6 +166,18 @@ def main():
         # Need to save the state, since Trainer.save_model saves only the tokenizer with the model
         trainer.state.save_to_json(os.path.join(training_args.output_dir, "trainer_state.json"))
 
+    # Evaluation
+    logger.info("*** Evaluate ***")
+
+    metrics = trainer.evaluate()
+
+    max_val_samples = data_args.max_val_samples if data_args.max_val_samples is not None else len(eval_dataset)
+    metrics["eval_samples"] = min(max_val_samples, len(eval_dataset))
+    perplexity = math.exp(metrics["eval_loss"])
+    metrics["perplexity"] = perplexity
+
+    trainer.log_metrics("eval", metrics)
+    trainer.save_metrics("eval", metrics)
 
 if __name__ == "__main__":
     main()
